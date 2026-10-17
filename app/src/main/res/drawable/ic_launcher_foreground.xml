@@ -1,23 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive-icon foreground layer: white "compress" glyph (arrow + shrinking bars).
+  The 108dp canvas is masked by the launcher, so the artwork is kept inside the central
+  72dp safe zone (x/y 18..90).
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Film frame with a downward compression arrow. -->
-    <group
-        android:pivotX="54"
-        android:pivotY="54"
-        android:scaleX="0.62"
-        android:scaleY="0.62">
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M30,38h48a4,4 0,0 1,4 4v24a4,4 0,0 1,-4 4h-48a4,4 0,0 1,-4 -4v-24a4,4 0,0 1,4 -4zM30,44v22h48v-22z" />
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M52,20h4v18h-4z" />
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M54,74l-10,-10 3,-3 5,5v-14h4v14l5,-5 3,3z" />
-    </group>
+
+    <!-- Arrow shaft -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M50.5,24 h7 v20 h-7 z" />
+
+    <!-- Arrow head -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M34,44 h40 L54,58 z" />
+
+    <!-- Widest bar -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M34,58 h40 a3,3 0 0 1 3,3 v0 a3,3 0 0 1 -3,3 h-40 a3,3 0 0 1 -3,-3 v0 a3,3 0 0 1 3,-3 z" />
+
+    <!-- Middle bar -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillAlpha="0.8"
+        android:pathData="M40.5,68 h27 a3,3 0 0 1 3,3 v0 a3,3 0 0 1 -3,3 h-27 a3,3 0 0 1 -3,-3 v0 a3,3 0 0 1 3,-3 z" />
+
+    <!-- Shortest bar -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillAlpha="0.6"
+        android:pathData="M47,78 h14 a3,3 0 0 1 3,3 v0 a3,3 0 0 1 -3,3 h-14 a3,3 0 0 1 -3,-3 v0 a3,3 0 0 1 3,-3 z" />
 </vector>
