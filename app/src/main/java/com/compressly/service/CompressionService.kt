@@ -1,5 +1,6 @@
 package com.compressly.service
 
+import android.annotation.SuppressLint
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
@@ -57,6 +58,9 @@ class CompressionService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    // FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING is a compile-time constant, so it is safe to
+    // reference from API 29 even though the named field was only documented from API 35.
+    @SuppressLint("InlinedApi")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_CANCEL_CURRENT -> cancelCurrent()
@@ -258,12 +262,8 @@ class CompressionService : Service() {
         const val ACTION_CANCEL_ALL = "com.compressly.action.CANCEL_ALL"
 
         fun start(context: Context) {
-            val intent = Intent(context, CompressionService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            // minSdk is 26, so startForegroundService is always the correct call.
+            context.startForegroundService(Intent(context, CompressionService::class.java))
         }
 
         fun stop(context: Context) {

@@ -125,6 +125,51 @@ dominate the size either way.
 
 ---
 
+## Continuous integration
+
+Two workflows, both under `.github/workflows/`:
+
+### `Verify build` — automatic
+
+Runs on every push to `main` and on every pull request. It compiles the debug **and** release
+variants, runs the unit tests, and fails on lint errors.
+
+It never signs and never publishes anything. A debug APK is attached to the run so you can grab
+it without a local setup.
+
+### `Build & release` — manual
+
+**Actions -> Build & release -> Run workflow**, then type a version:
+
+```
+version_name : 1.0.1        <- required
+version_code :              <- optional, derived if left blank
+prerelease  : false         <- optional
+```
+
+It builds a **signed** APK and an App Bundle, stamps them with the version you typed
+(`Compressly-1.0.1.apk`), verifies the APK really reports that version, and attaches both to a
+GitHub release tagged `v1.0.1`.
+
+`versionCode` must increase with every Play upload, so if you leave the field blank it is
+derived from the version:
+
+| You type | versionCode |
+|---|---|
+| `1.0.1` | `1000001` |
+| `1.2.3` | `1002003` |
+| `2.0.0` | `2000000` |
+
+Pre-release versions like `1.0.1-beta` are accepted and derive from `1.0.1`.
+
+> [!WARNING]
+> The release workflow needs four repository secrets before it will run
+> (`ANDROID_KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`).
+> **Follow [`scripts/README.md`](scripts/README.md) to create them** — and back up the
+> keystore, because losing it means you can never update the listing on Play.
+
+---
+
 ## How it works
 
 ```

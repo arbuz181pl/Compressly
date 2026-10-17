@@ -1,0 +1,183 @@
+# Builds a signed release APK for a version you type into the GitHub UI, and publishes it
+# as a GitHub Release.
+#
+# How to use:
+#   1. Repo -> Actions -> "Build & release" -> Run workflow
+#   2. Type a version, e.g. 1.0.1
+#   3. The APK is attached to a release tagged v1.0.1
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   ANDROID_KEYSTORE_BASE64  base64 of the release keystore
+#   KEYSTORE_PASSWORD        keystore password
+#   KEY_ALIAS                key alias
+#   KEY_PASSWORD             key password
+# See scripts/README.md for how to generate them.
+name: Build & release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Version to build, e.g. 1.0.1'
+        required: true
+        type: string
+      version_code:
+        description: 'Android versionCode (optional - derived from the version if left blank)'
+        required: false
+        type: string
+        default: ''
+      prerelease:
+        description: 'Mark the GitHub release as a prerelease'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build signed APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # Secrets cannot be read directly in an `if:` expression, so expose them as env vars.
+      - name: Check signing secrets
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::Missing repository secret ANDROID_KEYSTORE_BASE64. See scripts/README.md."
+            exit 1
+          fi
+
+      - name: Restore signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 --decode > keystore/release.jks
+          cat > keystore.properties <<EOF
+          storeFile=keystore/release.jks
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          EOF
+          chmod 600 keystore/release.jks
+
+      # versionCode must be an integer that increases with every upload. Derive a stable one
+      # from the version name (1.2.3 -> 1002003) unless the caller supplied it.
+      - name: Resolve version
+        id: ver
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          set -euo pipefail
+          name="${VERSION_NAME#v}"
+          if ! [[ "$name" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$name' is not a valid version. Use MAJOR.MINOR.PATCH, e.g. 1.0.1"
+            exit 1
+          fi
+          # A pre-release suffix (-beta, -rc1) must not leak into the integer code.
+          core="${name%%-*}"
+          IFS='.' read -r major minor patch <<< "$core"
+          if ! [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ && "$patch" =~ ^[0-9]+$ ]]; then
+            echo "::error::Could not read a numeric version out of '$name'"
+            exit 1
+          fi
+          if [ -n "${VERSION_CODE// /}" ]; then
+            code="$VERSION_CODE"
+          else
+            code=$(( 10#${major} * 1000000 + 10#${minor} * 1000 + 10#${patch} ))
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "tag=v$name" >> "$GITHUB_OUTPUT"
+          echo "Building $name (versionCode $code)"
+
+      - name: Build signed release APK
+        env:
+          VERSION_NAME: ${{ steps.ver.outputs.name }}
+          VERSION_CODE: ${{ steps.ver.outputs.code }}
+        run: |
+          ./gradlew --no-daemon --stacktrace :app:assembleRelease \
+            -PversionName="$VERSION_NAME" \
+            -PversionCode="$VERSION_CODE" \
+            -PciLint
+
+      - name: Build App Bundle
+        env:
+          VERSION_NAME: ${{ steps.ver.outputs.name }}
+          VERSION_CODE: ${{ steps.ver.outputs.code }}
+        run: |
+          ./gradlew --no-daemon --stacktrace :app:bundleRelease \
+            -PversionName="$VERSION_NAME" \
+            -PversionCode="$VERSION_CODE"
+
+      # Give the artifacts version-stamped, human-readable names.
+      - name: Collect and rename artifacts
+        env:
+          VERSION_NAME: ${{ steps.ver.outputs.name }}
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/Compressly-$VERSION_NAME.apk"
+          cp app/build/outputs/bundle/release/app-release.aab "dist/Compressly-$VERSION_NAME.aab"
+          ls -lh dist
+
+      - name: Verify the APK reports the requested version
+        env:
+          VERSION_NAME: ${{ steps.ver.outputs.name }}
+          VERSION_CODE: ${{ steps.ver.outputs.code }}
+        run: |
+          set -euo pipefail
+          badging="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/aapt2"
+          actual="$("$badging" dump badging "dist/Compressly-$VERSION_NAME.apk" | head -1)"
+          echo "$actual"
+          echo "$actual" | grep -q "versionName='$VERSION_NAME'" || {
+            echo "::error::APK versionName does not match $VERSION_NAME"; exit 1; }
+          echo "$actual" | grep -q "versionCode='$VERSION_CODE'" || {
+            echo "::error::APK versionCode does not match $VERSION_CODE"; exit 1; }
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION_NAME: ${{ steps.ver.outputs.name }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          flags="--title Compressly $VERSION_NAME --generate-notes"
+          if [ "$PRERELEASE" = "true" ]; then flags="$flags --prerelease"; fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Tag already exists: replace its assets instead of failing.
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* $flags
+          fi
+
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Compressly-${{ steps.ver.outputs.name }}
+          path: dist/*
+          retention-days: 90
+          if-no-files-found: error

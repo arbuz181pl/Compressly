@@ -40,6 +40,8 @@ private const val POSITION_POLL_MS = 50L
  * Playback is clamped to `[startMs, endMs]`: pressing play seeks to the in-point, and reaching
  * the out-point pauses instead of running on into the discarded footage.
  */
+// PlayerView and AspectRatioFrameLayout are still @UnstableApi in Media3 1.11.
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun VideoPreview(
     uri: android.net.Uri,
