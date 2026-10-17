@@ -51,8 +51,23 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # GitHub-hosted runners already provide the Android SDK, cmdline-tools and accepted
+      # licences, so android-actions/setup-android is deliberately not used: it only adds a
+      # moving part that can fail before the build even starts.
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          set -euo pipefail
+          if [ -z "${ANDROID_HOME:-}" ] || [ ! -d "$ANDROID_HOME" ]; then
+            echo "::error::ANDROID_HOME is not available on this runner image"
+            exit 1
+          fi
+          echo "ANDROID_HOME=$ANDROID_HOME"
+
+      - name: Accept Android SDK licences
+        continue-on-error: true
+        run: |
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/cmdline-tools/bin:$PATH"
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -138,19 +153,26 @@ jobs:
         env:
           VERSION_NAME: ${{ steps.ver.outputs.name }}
         run: |
+          set -euo pipefail
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk "dist/Compressly-$VERSION_NAME.apk"
           cp app/build/outputs/bundle/release/app-release.aab "dist/Compressly-$VERSION_NAME.aab"
           ls -lh dist
 
+      # Fail loudly if the APK does not carry the version that was requested, rather than
+      # publishing something mislabelled.
       - name: Verify the APK reports the requested version
         env:
           VERSION_NAME: ${{ steps.ver.outputs.name }}
           VERSION_CODE: ${{ steps.ver.outputs.code }}
         run: |
           set -euo pipefail
-          badging="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/aapt2"
-          actual="$("$badging" dump badging "dist/Compressly-$VERSION_NAME.apk" | head -1)"
+          aapt2="$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$aapt2" ]; then
+            echo "::error::Could not locate aapt2 under $ANDROID_HOME/build-tools"
+            exit 1
+          fi
+          actual="$("$aapt2" dump badging "dist/Compressly-$VERSION_NAME.apk" | head -1)"
           echo "$actual"
           echo "$actual" | grep -q "versionName='$VERSION_NAME'" || {
             echo "::error::APK versionName does not match $VERSION_NAME"; exit 1; }

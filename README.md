@@ -134,8 +134,15 @@ Two workflows, both under `.github/workflows/`:
 Runs on every push to `main` and on every pull request. It compiles the debug **and** release
 variants, runs the unit tests, and fails on lint errors.
 
-It never signs and never publishes anything. A debug APK is attached to the run so you can grab
-it without a local setup.
+It never signs anything, but it **does** attach the APKs to a rolling GitHub release tagged
+`ci-<commit>`, so a downloadable debug and unsigned-release APK exists for every commit
+without anyone building locally.
+
+> [!NOTE]
+> Both workflows use the Android SDK that GitHub's runners already provide rather than
+> `android-actions/setup-android`. That action was failing on the current runner image, and
+> removing it also removes a dependency that changes without notice. AGP downloads the
+> missing platform and build-tools revisions itself.
 
 ### `Build & release` — manual
 

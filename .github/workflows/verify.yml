@@ -1,5 +1,6 @@
 # Verifies that the project compiles, passes its tests and is lint-clean.
-# Produces a debug APK artifact but never signs or publishes anything.
+# Publishes the APK to a rolling GitHub release so it can be downloaded without
+# a local build. Never signs anything.
 name: Verify build
 
 on:
@@ -14,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
@@ -32,8 +33,26 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # GitHub-hosted runners already provide the Android SDK, cmdline-tools and accepted
+      # licences, so android-actions/setup-android is deliberately not used: it only adds a
+      # moving part that can fail before the build even starts. AGP downloads any missing
+      # platform or build-tools revision itself once the licences are accepted.
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          set -euo pipefail
+          if [ -z "${ANDROID_HOME:-}" ] || [ ! -d "$ANDROID_HOME" ]; then
+            echo "::error::ANDROID_HOME is not available on this runner image"
+            exit 1
+          fi
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME"
+
+      # Belt and braces: accept any outstanding licences so AGP can pull compileSdk 37.
+      - name: Accept Android SDK licences
+        continue-on-error: true
+        run: |
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/cmdline-tools/bin:$PATH"
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -54,12 +73,37 @@ jobs:
       - name: Lint
         run: ./gradlew --no-daemon --stacktrace :app:lintDebug -PciLint
 
-      - name: Upload debug APK
+      - name: Collect APKs
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/Compressly-debug-${{ github.sha }}.apk"
+          cp app/build/outputs/apk/release/app-release-unsigned.apk "dist/Compressly-${{ github.sha }}-release-unsigned.apk"
+          ls -lh dist
+
+      # Attach the APKs to a rolling release tagged with the commit. Re-runs replace the
+      # assets instead of failing, so a commit always has downloadable builds.
+      - name: Publish rolling CI release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ci-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --title "CI build ${{ github.sha }}" \
+              --notes "Automatic build of commit ${{ github.sha }}. Unsigned - see the Build & release workflow for signed artifacts."
+          fi
+
+      - name: Upload APKs as workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-unsigned
-          path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 14
+          name: Compressly-debug-${{ github.sha }}
+          path: dist/*
+          retention-days: 30
           if-no-files-found: error
 
       - name: Upload lint report
